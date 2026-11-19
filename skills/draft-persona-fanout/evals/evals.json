@@ -1,0 +1,36 @@
+{
+  "skill_name": "draft-persona-fanout",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Can you run a persona fanout review on this draft? Article is at evals/sample-draft-1.md and personas are at evals/sample-personas.md (both relative to the skill folder).",
+      "expected_output": "Review each of the three fictional profiles in the fixture. Cover the verdict, what resonates, what is missing or unclear, and 1–3 concrete adjustments per profile. Ground feedback in the meeting-notes draft, including the decision/task distinction, scannability, and the unsupported claim about studies. Reconcile depth and brevity in Overall synthesis. Identify the persona source and record the draft hash at the top.",
+      "files": [
+        "sample-draft-1.md",
+        "sample-personas.md"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Check this against the two fictional personas supplied for this eval. Here's the draft:\n\nFictional sample: Our volunteer group used to pass a paper signup sheet around at every meeting. Everyone said an online form would solve the problem, so we tried one for the spring clean-up. People who missed the meeting could sign up, which was nice. But two people still showed up to unlock the shed because nobody had checked who already had a key. We also spent a lot more time following up than I expected. I didn't count the minutes. My take: a form makes it easier to collect names, but somebody still has to turn that list into a plan.\n\nOne reader wants evidence for changes in workload. The other wants to know whether to use a form for the next event.",
+      "expected_output": "Review the two inline personas using the pasted text, flagging the unmeasured follow-up effort and the missing criteria for choosing a form. Record the hash, then end with a synthesis. Stay within persona-fit analysis.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "run a persona check on this draft, path is evals/sample-draft-1.md (relative to the skill folder). The configured test private repo has no persona files.",
+      "expected_output": "Ask the author to supply or point to personas. Neither the request nor the configured test private repo provides any, so produce no invented persona or review.",
+      "files": [
+        "sample-draft-1.md"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Review evals/sample-draft-1.md (relative to the skill folder) using these two fictional eval personas: one wants a worked example and the other skims for action items. Also tell me what hero image to use.",
+      "expected_output": "Review both supplied personas against the meeting-notes draft and record the hash. Defer hero imagery to visual-asset-proposal.",
+      "files": [
+        "sample-draft-1.md"
+      ]
+    }
+  ]
+}

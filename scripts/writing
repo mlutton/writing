@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+"""Command-line entry point for the writing tools."""
+
+import argparse
+import json
+import os
+from pathlib import Path
+import sys
+import tomllib
+
+
+def private_location(public_root):
+    location = os.environ.get("WRITING_PRIVATE")
+    source = "env"
+    if location is None:
+        source = "settings"
+        try:
+            with (public_root / "settings.local.toml").open("rb") as file:
+                location = tomllib.load(file).get("private_root")
+        except (OSError, ValueError):
+            return None, None
+    if not isinstance(location, str) or not location or "\0" in location:
+        return None, None
+    try:
+        return (public_root / Path(location).expanduser()).resolve(), source
+    except (OSError, RuntimeError):
+        return None, None
+
+
+def paths(args):
+    public_root = Path(__file__).resolve().parent.parent
+    private_root, source = private_location(public_root)
+    if args.require_private and (private_root is None or not private_root.is_dir()):
+        print("writing: configure an existing private repo via WRITING_PRIVATE or settings.local.toml",
+              file=sys.stderr)
+        return 3
+    print(json.dumps({
+        "public_root": str(public_root),
+        "private_root": str(private_root) if private_root is not None else None,
+        "private_source": source,
+    }))
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    commands = parser.add_subparsers(dest="command", required=True)
+    paths_parser = commands.add_parser("paths", help="print the repository locations as JSON")
+    paths_parser.add_argument("--require-private", action="store_true",
+                              help="require an existing private repo directory")
+    paths_parser.set_defaults(handler=paths)
+    args = parser.parse_args()
+    return args.handler(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

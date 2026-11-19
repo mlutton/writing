@@ -1,0 +1,27 @@
+{
+  "skill_name": "article-refiner",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Can you refine this article draft for my newsletter? It's a bit rough and I want it ready for Substack. File is at evals/sample-draft-1.md (relative to the skill folder).",
+      "expected_output": "A polished full draft with a stronger hook than the generic volunteer-project opener, tighter structure, and a closing that advances the argument. Preserve the informal voice and seed-swap anecdote. Flag the unnamed studies and unsupported time-saving claim; supply no invented evidence. Include the hook and subtitle options, what changed and why, and flagged inputs.",
+      "files": [
+        "sample-draft-1.md"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "help me refine this piece, it's pasted below:\n\nFictional sample: Our volunteer group used to pass a paper signup sheet around at every meeting. Everyone said an online form would solve the problem, so we tried one for the spring clean-up. People who missed the meeting could sign up, which was nice. But two people still showed up to unlock the shed because nobody had checked who already had a key. We also spent a lot more time following up than I expected. I didn't count the minutes. My take: a form makes it easier to collect names, but somebody still has to turn that list into a plan.",
+      "expected_output": "Refine the pasted text with a stronger opening and closing. Keep the skeptical voice and the thesis that a form collects signups while someone still has to make the plan. Flag the unmeasured follow-up time and invent no figures. Stay within prose refinement.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "polish my draft at evals/sample-draft-1.md (relative to the skill folder), and also suggest images and tell me how my reader personas would react",
+      "expected_output": "Should refine the prose (same expectations as eval 1) but explicitly decline/defer the image suggestions and persona-reaction analysis, noting those belong to visual-asset-proposal and draft-persona-fanout respectively, rather than attempting them itself.",
+      "files": [
+        "sample-draft-1.md"
+      ]
+    }
+  ]
+}
