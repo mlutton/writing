@@ -2,10 +2,18 @@
 """Command-line entry point for the writing tools."""
 
 import argparse
+from contextlib import contextmanager
+from datetime import date
+import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
+import re
+import stat
+import subprocess
 import sys
+import tempfile
 import tomllib
 
 
@@ -42,15 +50,475 @@ def paths(args):
     return 0
 
 
+TOPIC_STATUSES = ("proposed", "queued", "researching", "researched", "drafting",
+                  "published", "rejected")
+SLUG = re.compile(r"[a-z0-9-]+")
+DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+FOLDER = re.compile(r"([0-9]{4}-[0-9]{2}-[0-9]{2})-([a-z0-9-]+)")
+FIELD = re.compile(rb"([a-zA-Z0-9_-]+):[ \t]*(.*?)(\r?\n)?$")
+NEXT_FIELD = re.compile(rb"[^ \t\r\n#][^:\r\n]*:")
+LIST_ITEM = re.compile(rb"[ \t]*-[ \t]+(.*?)(?:\r?\n)?$")
+
+
+class Refusal(ValueError):
+    """The requested change cannot be made."""
+
+
+def slug_arg(value):
+    if not SLUG.fullmatch(value):
+        raise argparse.ArgumentTypeError("use a lowercase slug with letters, digits, or hyphens")
+    return value
+
+
+def date_arg(value):
+    try:
+        if DATE.fullmatch(value):
+            return date.fromisoformat(value).isoformat()
+    except ValueError:
+        pass
+    raise argparse.ArgumentTypeError("use a valid date in YYYY-MM-DD form")
+
+
+def folder_arg(value):
+    match = FOLDER.fullmatch(value)
+    if not match:
+        raise argparse.ArgumentTypeError("use an article folder name in YYYY-MM-DD-slug form")
+    date_arg(match[1])
+    return value
+
+
+def title_arg(value):
+    if not value.strip() or len(value.splitlines()) != 1 or any(ord(c) < 32 for c in value):
+        raise argparse.ArgumentTypeError("use a nonempty title on one line")
+    return value
+
+
+def derive_slug(title):
+    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+    if not slug:
+        raise Refusal("could not derive a slug from the title; supply --slug")
+    return slug
+
+
+def quoted(value):
+    return json.dumps(value, ensure_ascii=False)
+
+
+def scalar(value):
+    """Read plain, JSON-style double-quoted, or YAML single-quoted values."""
+    value = value.strip()
+    if value.startswith('"'):
+        decoded, end = json.JSONDecoder().raw_decode(value)
+        trailing = value[end:].strip()
+        if trailing and not trailing.startswith("#"):
+            raise Refusal("invalid quoted frontmatter value")
+        return decoded
+    if value.startswith("'"):
+        match = re.fullmatch(r"'((?:[^']|'')*)'(?:[ \t]+#.*)?", value)
+        if not match:
+            raise Refusal("invalid quoted frontmatter value")
+        return match[1].replace("''", "'")
+    if value.startswith("#"):
+        return ""
+    return re.split(r"[ \t]+#", value, maxsplit=1)[0].rstrip()
+
+
+class Frontmatter:
+    """Keep original bytes outside the fields being edited."""
+
+    def __init__(self, data):
+        lines = data.splitlines(keepends=True)
+        if not lines or lines[0].rstrip(b"\r\n") != b"---":
+            raise Refusal("expected opening frontmatter delimiter")
+        for i, line in enumerate(lines[1:], 1):
+            if line.rstrip(b"\r\n") in {b"---", b"..."}:
+                self.opening = lines[0]
+                self.fields = lines[1:i]
+                self.tail = b"".join(lines[i:])
+                self.body = b"".join(lines[i + 1:])
+                self.newline = b"\r\n" if self.opening.endswith(b"\r\n") else b"\n"
+                return
+        raise Refusal("expected closing frontmatter delimiter")
+
+    def field(self, key):
+        matches = []
+        for i, line in enumerate(self.fields):
+            match = FIELD.fullmatch(line)
+            if match and match[1] == key.encode():
+                matches.append((i, match[2]))
+        if len(matches) > 1:
+            raise Refusal(f"duplicate frontmatter field {key}")
+        return matches[0] if matches else (None, b"")
+
+    def get(self, key):
+        index, value = self.field(key)
+        return None if index is None else scalar(value.decode())
+
+    def set(self, key, value):
+        index, _ = self.field(key)
+        line = (f"{key}: {value}" if value else f"{key}:").encode()
+        if index is None:
+            self.fields.append(line + self.newline)
+        else:
+            ending = b"\r\n" if self.fields[index].endswith(b"\r\n") else b"\n"
+            self.fields[index] = line + ending
+
+    def merge_evidence(self, values):
+        if not values:
+            return
+        index, raw = self.field("evidence")
+        if index is None:
+            self.set("evidence", "")
+            index = len(self.fields) - 1
+        value = scalar(raw.decode())
+        if value not in ("", "[]"):
+            raise Refusal("expected evidence to be a block list or an empty list")
+        end = index + 1
+        seen = set()
+        indent = b"  "
+        for i in range(end, len(self.fields)):
+            line = self.fields[i]
+            if NEXT_FIELD.match(line):
+                break
+            match = LIST_ITEM.fullmatch(line)
+            if match:
+                indent = line[:line.index(b"-")]
+                seen.add(scalar(match[1].decode()))
+                end = i + 1
+            elif line.strip() and not line.lstrip().startswith(b"#"):
+                raise Refusal("expected a simple evidence list")
+        added = [value for value in dict.fromkeys(values) if value not in seen]
+        if added and value == "[]":
+            self.set("evidence", "")
+        self.fields[end:end] = [
+            indent + b"- " + quoted(value).encode() + self.newline for value in added
+        ]
+
+    def bytes(self):
+        return self.opening + b"".join(self.fields) + self.tail
+
+
+def document(fields, body):
+    metadata = "".join(
+        f"{key}:{value}\n" if value.startswith("\n") else f"{key}: {value}\n"
+        for key, value in fields
+    )
+    return f"---\n{metadata}---\n\n{body}".encode()
+
+
+def child(root, *parts):
+    path = root
+    for part in parts:
+        path = path / part
+        if path.is_symlink():
+            raise Refusal("symbolic links are not supported for writing files")
+    return path
+
+
+def topic_file(root, slug):
+    return child(root, "topics", slug + ".md")
+
+
+def article_file(root, folder):
+    return child(root, "articles", folder, "article.md")
+
+
+def read_document(path):
+    if not path.is_file():
+        raise Refusal(f"missing file: {path.name}")
+    data = path.read_bytes()
+    return data, Frontmatter(data)
+
+
+def replace_bytes(path, data):
+    """Replace an existing file atomically and keep its permissions."""
+    permissions = stat.S_IMODE(path.stat().st_mode)
+    with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as file:
+        temp = Path(file.name)
+        try:
+            with file:
+                os.fchmod(file.fileno(), permissions)
+                file.write(data)
+            temp.replace(path)
+        finally:
+            temp.unlink(missing_ok=True)
+
+
+def apply_changes(changes):
+    """Apply prepared edits and restore completed edits if a later write fails."""
+    applied = []
+    try:
+        for path, before, after in changes:
+            if before != after:
+                replace_bytes(path, after)
+                applied.append((path, before))
+    except OSError:
+        for path, before in reversed(applied):
+            replace_bytes(path, before)
+        raise
+
+
+def topic_change(root, slug, status):
+    path = topic_file(root, slug)
+    if not path.is_file():
+        raise Refusal(f"topic does not exist: {slug}")
+    before, matter = read_document(path)
+    matter.set("status", status)
+    return path, before, matter.bytes()
+
+
+def output(args, result, lines):
+    if args.json:
+        print(json.dumps(result, ensure_ascii=True))
+    else:
+        for line in lines:
+            print(line)
+
+
+def report_files(args, files):
+    result = [{"action": action, "path": str(path.relative_to(root))}
+              for action, path, root in files]
+    output(args, result, (f"{item['action']} {item['path']}" for item in result))
+
+
+def topic_add(args, public, private):
+    slug = args.slug or derive_slug(args.title)
+    path = topic_file(private, slug)
+    if path.exists():
+        before, matter = read_document(path)
+        matter.merge_evidence(args.evidence)
+        apply_changes([(path, before, matter.bytes())])
+        action = "updated"
+    else:
+        fields = [("status", "proposed"), ("origin", args.origin),
+                  ("first_seen", date.today().isoformat())]
+        if args.lane is not None:
+            fields.append(("lane", quoted(args.lane)))
+        evidence = "".join(f"\n  - {quoted(item)}" for item in dict.fromkeys(args.evidence))
+        fields.append(("evidence", evidence or "[]"))
+        why = args.why + "\n" if args.why else ""
+        data = document(fields, f"# {args.title}\n\n## Why this might be worth writing about\n\n{why}")
+        create_bytes(path, data)
+        action = "created"
+    report_files(args, [(action, path, private)])
+
+
+def create_bytes(path, data):
+    with path.open("xb") as file:
+        try:
+            file.write(data)
+            file.flush()
+        except OSError:
+            path.unlink()
+            raise
+
+
+def topic_set_status(args, public, private):
+    change = topic_change(private, args.slug, args.status)
+    apply_changes([change])
+    report_files(args, [("updated", change[0], private)])
+
+
+def list_documents(args, public, private):
+    is_topic = args.group == "topic"
+    directory = child(private, "topics" if is_topic else "articles")
+    entries = []
+    for item in sorted(directory.iterdir()):
+        if item.is_symlink():
+            continue
+        if is_topic:
+            if item.suffix != ".md" or not SLUG.fullmatch(item.stem) or not item.is_file():
+                continue
+            key, identifier, path = "slug", item.stem, item
+        else:
+            if not FOLDER.fullmatch(item.name) or not item.is_dir():
+                continue
+            key, identifier, path = "folder", item.name, article_file(private, item.name)
+        _, matter = read_document(path)
+        status = matter.get("status")
+        if args.status is None or args.status == status:
+            title = matter.get("title") or next(
+                (line[2:].decode() for line in matter.body.splitlines() if line.startswith(b"# ")),
+                identifier,
+            )
+            entries.append({key: identifier, "status": status, "title": title})
+    output(args, entries, ("\t".join(str(value or "") for value in item.values())
+                           for item in entries))
+
+
+def article_new(args, public, private):
+    slug = args.slug or derive_slug(args.title)
+    folder = child(private, "articles", f"{args.date or date.today().isoformat()}-{slug}")
+    if folder.exists():
+        raise Refusal(f"article folder already exists: {folder.name}")
+    changes = [topic_change(private, args.topic, "drafting")] if args.topic else []
+    fields = [("title", quoted(args.title)), ("status", "draft"),
+              ("created", args.date or folder.name[:10])]
+    if args.series is not None:
+        fields.append(("series", quoted(args.series)))
+    if args.topic:
+        fields.append(("topic", args.topic))
+    files = {
+        folder / "article.md": document(fields, f"# {args.title}\n\n"),
+        folder / "notes.md": b"# Article notes\n\n## Sources\n\n## Flagged for the author\n\n## Open questions\n",
+        folder / "questions.md": b"# Question rounds\n",
+    }
+    folder.mkdir()
+    created = []
+    try:
+        for path, data in files.items():
+            create_bytes(path, data)
+            created.append(path)
+        apply_changes(changes)
+    except OSError:
+        for path in created:
+            path.unlink()
+        folder.rmdir()
+        raise
+    report_files(args, [("created", path, private) for path in files] +
+                 [("updated", path, private) for path, _, _ in changes])
+
+
+def article_hash(args, public, private):
+    digest = hashlib.sha256(article_file(private, args.folder).read_bytes()).hexdigest()
+    output(args, {"sha256": digest}, [digest])
+
+
+def publish(args, public, private):
+    summary = (args.summary_file.read_text(encoding="utf-8")
+               if args.summary_file is not None else args.summary).strip()
+    if not 20 <= len(summary.split()) <= 120:
+        raise Refusal("summary must contain 20 to 120 words")
+    entry = child(public, "published", args.folder + ".md")
+    if entry.exists():
+        raise Refusal(f"published entry already exists: {entry.name}")
+    article = article_file(private, args.folder)
+    before, matter = read_document(article)
+    title = matter.get("title")
+    if not title:
+        raise Refusal("article frontmatter requires a title")
+    series = matter.get("series")
+    topic = matter.get("topic")
+    fields = [("title", quoted(title)), ("status", "published"),
+              ("published_date", args.date), ("url", quoted(args.url))]
+    if series is not None:
+        fields.append(("series", quoted(series)))
+    entry_data = document(fields, summary + "\n")
+    for key, value in fields[1:4]:
+        matter.set(key, value)
+    changes = [(article, before, matter.bytes())]
+    if topic:
+        if not SLUG.fullmatch(topic):
+            raise Refusal("article frontmatter has an invalid topic slug")
+        changes.append(topic_change(private, topic, "published"))
+
+    if not args.yes:
+        preview = [{"action": action, "path": str(path.relative_to(root)),
+                    "content": data.decode("utf-8")}
+                   for action, root, path, data in [
+                       ("create", public, entry, entry_data),
+                       *(("update", private, path, data) for path, _, data in changes),
+                   ]]
+        output(args, preview, (f"would {item['action']} {item['path']}: {quoted(item['content'])}"
+                               for item in preview))
+        return 4
+
+    create_bytes(entry, entry_data)
+    complete = False
+    try:
+        guard = subprocess.run(
+            [str(public / "scripts" / "guard"), str(entry.relative_to(public))],
+            cwd=public, env={**os.environ, "WRITING_PRIVATE": str(private)},
+            capture_output=True, check=False,
+        )
+        if guard.returncode:
+            sys.stderr.buffer.write(guard.stdout + guard.stderr)
+            return 1
+        apply_changes(changes)
+        complete = True
+    finally:
+        if not complete:
+            entry.unlink()
+    report_files(args, [("created", entry, public)] +
+                 [("updated", path, private) for path, _, _ in changes])
+    return 0
+
+
+@contextmanager
+def locked(root):
+    """Serialize commands that read or change the same private repo."""
+    descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(descriptor)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    commands = parser.add_subparsers(dest="command", required=True)
-    paths_parser = commands.add_parser("paths", help="print the repository locations as JSON")
+    commands = parser.add_subparsers(dest="group", required=True)
+    paths_parser = commands.add_parser("paths", help="print repository locations as JSON")
     paths_parser.add_argument("--require-private", action="store_true",
                               help="require an existing private repo directory")
     paths_parser.set_defaults(handler=paths)
+
+    def command(parent, name, handler, help_text):
+        subparser = parent.add_parser(name, help=help_text)
+        subparser.add_argument("--json", action="store_true", help="print the result as JSON")
+        subparser.set_defaults(handler=handler)
+        return subparser
+
+    topics = commands.add_parser("topic", help="manage topic notes").add_subparsers(required=True)
+    add = command(topics, "add", topic_add, "create a topic or merge its evidence")
+    add.add_argument("--title", required=True, type=title_arg)
+    add.add_argument("--slug", type=slug_arg)
+    add.add_argument("--lane")
+    add.add_argument("--origin", choices=("proposed", "clipped", "idea"), default="proposed")
+    add.add_argument("--evidence", action="append", default=[])
+    add.add_argument("--why", default="")
+    command(topics, "list", list_documents, "list topics").add_argument("--status")
+    status = command(topics, "set-status", topic_set_status, "set a topic's status")
+    status.add_argument("slug", type=slug_arg)
+    status.add_argument("status", choices=TOPIC_STATUSES)
+
+    articles = commands.add_parser("article", help="manage working articles").add_subparsers(required=True)
+    new = command(articles, "new", article_new, "create an article folder")
+    new.add_argument("--title", required=True, type=title_arg)
+    new.add_argument("--slug", type=slug_arg)
+    new.add_argument("--date", type=date_arg)
+    new.add_argument("--topic", type=slug_arg)
+    new.add_argument("--series")
+    command(articles, "hash", article_hash, "hash the article's exact bytes").add_argument(
+        "folder", type=folder_arg)
+    command(articles, "list", list_documents, "list articles").add_argument("--status")
+
+    publication = command(commands, "publish", publish, "record an article already published")
+    publication.add_argument("folder", type=folder_arg)
+    publication.add_argument("--url", required=True)
+    publication.add_argument("--date", required=True, type=date_arg)
+    summary = publication.add_mutually_exclusive_group(required=True)
+    summary.add_argument("--summary")
+    summary.add_argument("--summary-file", type=Path)
+    publication.add_argument("--yes", action="store_true", help="confirm publication recording")
+
     args = parser.parse_args()
-    return args.handler(args)
+    if args.handler == paths:
+        return paths(args)
+    public = Path(__file__).resolve().parent.parent
+    private, _ = private_location(public)
+    if private is None or not private.is_dir():
+        print("writing: configure an existing private repo via WRITING_PRIVATE or settings.local.toml",
+              file=sys.stderr)
+        return 3
+    try:
+        if private.is_relative_to(public) or public.is_relative_to(private):
+            raise Refusal("the public and private repos must be separate trees")
+        with locked(private):
+            return args.handler(args, public, private) or 0
+    except (OSError, ValueError) as error:
+        print(f"writing: {error}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

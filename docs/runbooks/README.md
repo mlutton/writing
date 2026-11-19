@@ -1,6 +1,6 @@
 # Runbooks
 
-- Start an article — not written yet
-- Run a persona round — not written yet
-- Publish — not written yet
+- [Start an article](start-an-article.md)
+- [Run a persona round](run-a-persona-round.md)
+- [Publish](publish.md)
 - Seed legacy content — not written yet

@@ -1,0 +1,23 @@
+{
+  "skill_name": "interview-to-draft",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Help me start an article from the fictional topic represented in evals/fictional-topic.md, relative to the skill folder. I haven't answered any questions or approved an outline yet.",
+      "expected_output": "Set up the working folder and present a first question round before writing any draft prose. Record the questions under Round 1 in questions.md, use lettered sections A, B, and C with per-section question numbers, and show the author the same questions. Ask only what the topic and available guidance leave open.",
+      "files": ["fictional-topic.md"]
+    },
+    {
+      "id": 2,
+      "prompt": "Continue the fictional workshop article using evals/fictional-topic.md and the shared answers plus the unsourced figure case in evals/fictional-answers.md, relative to the skill folder. The outline is approved.",
+      "expected_output": "Draft from these answers, marking the 15-minute figure [unverified] in the draft and listing it under Open questions. Cite the workshop log for the sourced figure and include the unsourced figure in the claims read.",
+      "files": ["fictional-topic.md", "fictional-answers.md"]
+    },
+    {
+      "id": 3,
+      "prompt": "Continue the fictional workshop article using evals/fictional-topic.md and the shared answers plus the flagged mention case in evals/fictional-answers.md, relative to the skill folder. The outline is approved.",
+      "expected_output": "Flag the employer mention under Flagged for the author and include it in the handoff. Keep the mention out of the draft prose.",
+      "files": ["fictional-topic.md", "fictional-answers.md"]
+    }
+  ]
+}
