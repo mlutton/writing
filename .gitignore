@@ -1,0 +1,12 @@
+settings.local.toml
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+private/
+drafts/

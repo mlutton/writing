@@ -1,0 +1,243 @@
+#!/usr/bin/env python3
+"""Check candidate public files in the Git index or working tree."""
+
+import argparse
+import ipaddress
+import os
+from pathlib import Path, PurePosixPath
+import re
+import subprocess
+import sys
+import tomllib
+
+
+TOP_LEVEL = {"AGENTS.md", "README.md", "LICENSE", "GLOSSARY.md", ".gitignore"}
+DIRECTORIES = {
+    ".githooks", ".github", "skills", "agents", "scripts", "docs", "examples",
+    "published",
+}
+PRIVATE_DIRECTORIES = {"private", "guides", "personas", "topics", "articles", "drafts"}
+EXAMPLE_DOMAINS = {"example.com", "example.org", "noreply.github.com"}
+PRIVATE_NETWORKS = tuple(ipaddress.IPv4Network(network) for network in (
+    "10" + ".0.0.0/8", "172" + ".16.0.0/12", "192" + ".168.0.0/16",
+))
+DRAFT_STATUSES = {"draft", "drafting", "proposed", "queued", "ready"}
+RULES = {
+    "home-path": re.compile(r"/(?:home|Users)/[^/\s]+/|C:\\Users\\", re.I),
+    "private-ip": re.compile(r"(?<![\w.])(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?!\w|\.[0-9])"),
+    "email": re.compile(r"[\w.!#$%&'*+/=?^_{|}~-]+@([\w-]+(?:\.[\w-]+)+)"),
+    "credential": re.compile(
+        r"\bBEGIN (?:[A-Z0-9-]+ )*PRIVATE KEY\b"
+        r"|\b(?:ghp_|github_pat_)[A-Za-z0-9_]+"
+        r"|\bsk-[A-Za-z0-9_-]{20,}|\bAKIA[A-Z0-9]{16}\b"
+    ),
+}
+BUILTIN_DENY_TERMS = ("internal" + " only", "do not" + " distribute")
+STATUS = re.compile(r"""^\s*["']?status["']?\s*:\s*(.*?)\s*$""")
+EXEMPTION = re.compile(r"\bguard: allow ([a-z][a-z-]*)\b")
+
+
+def git(*args, cwd=None):
+    return subprocess.run(
+        ["git", *args], cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        check=True,
+    ).stdout
+
+
+def nul_records(data):
+    return data.rstrip(b"\0").split(b"\0") if data else []
+
+
+def deny_patterns(root):
+    terms = list(BUILTIN_DENY_TERMS)
+    location = os.environ.get("WRITING_PRIVATE")
+    if location is None:
+        settings = root / "settings.local.toml"
+        if settings.is_file():
+            with settings.open("rb") as file:
+                location = tomllib.load(file).get("private_root")
+            if location is not None and not isinstance(location, str):
+                raise ValueError("invalid private root")
+    try:
+        if not location:
+            raise FileNotFoundError
+        private_root = root / Path(location).expanduser()
+        denylist = private_root / "settings/guard-denylist.txt"
+        for line in denylist.read_text(encoding="utf-8").splitlines():
+            term = line.strip()
+            if term and not term.startswith("#"):
+                terms.append(term)
+    except FileNotFoundError:
+        print("guard: private deny list unavailable; using built-in rules only", file=sys.stderr)
+    return [
+        re.compile(term[3:] if term.startswith("re:") else rf"(?<!\w){re.escape(term)}(?!\w)", re.I)
+        for term in terms
+    ]
+
+
+def content_lines(data):
+    if data.startswith((b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff")):
+        encoding = "utf-32"
+    elif data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        encoding = "utf-16"
+    else:
+        encoding = "utf-8-sig"
+    try:
+        content = data.decode(encoding)
+    except UnicodeDecodeError:
+        return None
+    return None if "\0" in content else content.splitlines()
+
+
+def frontmatter_statuses(lines):
+    if not lines or lines[0].rstrip() != "---":
+        return []
+    statuses = []
+    for number, line in enumerate(lines[1:], 2):
+        if line.rstrip() in {"---", "..."}:
+            return statuses
+        match = STATUS.fullmatch(line)
+        if match:
+            value = re.split(r"\s+#", match[1], maxsplit=1)[0].strip().strip("\"'")
+            statuses.append((number, value))
+    return []
+
+
+def content_findings(lines, published_entry, denylist):
+    statuses = frontmatter_statuses(lines)
+    for number, status in statuses:
+        if status.lower() in DRAFT_STATUSES:
+            yield number, "draft-status", "unpublished frontmatter status"
+    if published_entry and not statuses:
+        yield 1, "published-status", "published entry requires published frontmatter status"
+    for number, status in statuses:
+        if published_entry and status != "published":
+            yield number, "published-status", "published entry requires published frontmatter status"
+
+    for number, line in enumerate(lines, 1):
+        for rule, pattern in RULES.items():
+            for match in pattern.finditer(line):
+                if rule == "email" and match[1].lower() in EXAMPLE_DOMAINS:
+                    continue
+                if rule == "private-ip":
+                    try:
+                        address = ipaddress.IPv4Address(match[0])
+                    except ipaddress.AddressValueError:
+                        continue
+                    if not any(address in network for network in PRIVATE_NETWORKS):
+                        continue
+                yield number, rule, "restricted content"
+                break
+        if any(pattern.search(line) for pattern in denylist):
+            yield number, "denylist", "restricted term"
+
+
+def path_allowed(path):
+    parts = path.parts
+    return (
+        bool(parts)
+        and (str(path) in TOP_LEVEL or (len(parts) > 1 and parts[0] in DIRECTORIES))
+        and not PRIVATE_DIRECTORIES.intersection(part.lower() for part in parts[:-1])
+        and path.name.lower() != "settings.local.toml"
+    )
+
+
+def working_file(root, name, skip_missing):
+    target = root / name
+    for path in (target, *target.parents):
+        if path == root:
+            break
+        if path.is_symlink():
+            return None, "symbolic links are restricted"
+    if skip_missing and not target.exists():
+        return None, None
+    if not target.is_file():
+        return None, "expected a regular file"
+    return target.read_bytes(), None
+
+
+def inspect(root, name, mode, object_id, skip_missing, denylist):
+    path = PurePosixPath(name)
+    if not path_allowed(path):
+        yield 1, "path", "file is outside the permitted paths"
+        return
+
+    if mode:
+        if mode not in {b"100644", b"100755"}:
+            yield 1, "path", "expected a regular file in the index"
+            return
+        data = git("cat-file", "blob", object_id, cwd=root)
+    else:
+        data, error = working_file(root, name, skip_missing)
+        if error:
+            yield 1, "path", error
+        if data is None:
+            return
+
+    lines = content_lines(data)
+    if lines is None:
+        if path.parts[0] not in {"examples", "docs"}:
+            yield 1, "binary", "binary file is outside the permitted directories"
+        return
+
+    published_entry = path.parts[0] == "published" and name != "published/README.md"
+    for number, rule, reason in content_findings(lines, published_entry, denylist):
+        if rule not in EXEMPTION.findall(lines[number - 1] if lines else ""):
+            yield number, rule, reason
+
+
+def candidates(args, root):
+    if args.staged:
+        changed = set(nul_records(git(
+            "diff", "--cached", "--name-only", "--no-renames", "--diff-filter=ACMRTUXB",
+            "-z", cwd=root,
+        )))
+        for entry in nul_records(git("ls-files", "--stage", "-z", cwd=root)):
+            metadata, name = entry.split(b"\t", 1)
+            if name in changed:
+                mode, object_id, stage = metadata.split()
+                if stage != b"0":
+                    raise ValueError("unmerged index entry")
+                yield os.fsdecode(name), mode, os.fsdecode(object_id)
+    elif args.all:
+        files = git("ls-files", "-co", "--exclude-standard", "-z", cwd=root)
+        for name in dict.fromkeys(nul_records(files)):
+            yield os.fsdecode(name), None, None
+    else:
+        for name in args.paths:
+            absolute = Path(os.path.abspath(name))
+            if not absolute.is_relative_to(root):
+                raise ValueError("path is outside the repository")
+            yield absolute.relative_to(root).as_posix(), None, None
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--staged", action="store_true", help="check staged contents")
+    mode.add_argument("--all", action="store_true", help="check candidate working-tree files")
+    parser.add_argument("paths", nargs="*")
+    args = parser.parse_args()
+    if (not args.paths and not (args.staged or args.all)) or (
+        args.paths and (args.staged or args.all)
+    ):
+        parser.error("use --staged, --all, or one or more paths")
+
+    try:
+        root = Path(os.fsdecode(git("rev-parse", "--show-toplevel")).removesuffix("\n"))
+        denylist = deny_patterns(root)
+        found = False
+        for name, mode, object_id in candidates(args, root):
+            for number, rule, reason in inspect(root, name, mode, object_id, args.all, denylist):
+                display = name.replace("\n", r"\n").replace("\r", r"\r")
+                print(f"{display}:{number}: {rule}: {reason}")
+                found = True
+        return int(found)
+    except (OSError, ValueError, re.error, subprocess.SubprocessError):
+        print("guard: could not complete the check; verify Git state, paths, and settings",
+              file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

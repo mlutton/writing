@@ -1,0 +1,3 @@
+# Copy to settings.local.toml and replace the placeholder.
+# WRITING_PRIVATE takes precedence when set.
+private_root = "/path/to/your/private/repo"
