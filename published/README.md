@@ -1,6 +1,6 @@
 # Published entries
 
-Create one Markdown file per published article. Include a short summary after the frontmatter. The full article text stays in the private repo.
+Create one Markdown file per published article. Include a short summary after the frontmatter. Seeded entries carry the article's published subtitle or opening sentences. The full article text stays in the private repo.
 
 ```yaml
 ---
