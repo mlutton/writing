@@ -1,0 +1,75 @@
+# Example article-header template. Copy it to the private repo as
+# guides/header-template.toml and replace every value with your own.
+# These placeholder values are neutral on purpose; the generator has no
+# values of its own and renders whatever this file says.
+
+[canvas]
+width = 1200
+height = 675
+background = "#202020"
+
+[font]
+# A system family needs no file. To vendor a font, add both lines below
+# (path relative to the private repo root; sha256 of the file), for example:
+#   file = "assets/fonts/example/Example[wght].ttf"
+#   sha256 = "<64 hex characters>"
+family = "sans-serif"
+weight_min = 100
+weight_max = 900
+
+# Top and bottom rules, full canvas width.
+[[rule]]
+y = 0
+height = 2
+fill = "#5080B0"
+opacity = 0.9
+
+[[rule]]
+y = 673
+height = 2
+fill = "#5080B0"
+opacity = 0.4
+
+[title]
+x = 100                # left rail
+last_baseline = 413    # the block is bottom-anchored on this baseline
+max_width = 640        # widest allowed line; over this, the whole block scales
+min_size = 38          # smallest allowed standard-line size after scaling
+advance_prev = 0.2866  # baseline advance = prev * advance_prev + next * advance_next
+advance_next = 0.7866
+
+[title.standard]
+size = 68
+weight = 700
+letter_spacing = -2
+fill = "#EEEEEE"
+
+# The single emphasis line.
+[title.emphasis]
+size = 96
+weight = 700
+letter_spacing = -4
+fill = "#C0A060"
+
+[separator]
+x = 100
+y = 449
+width = 260
+height = 1
+fill = "#404040"
+
+[deck]
+x = 100
+size = 16
+weight = 400
+baselines = [476, 498]
+fills = ["#A0A8B0", "#808890"]
+
+[watermark]
+size = 300
+weight = 800
+letter_spacing = -8
+fill = "#2A2A2A"
+x = 1123
+baseline = 510
+anchor = "end"

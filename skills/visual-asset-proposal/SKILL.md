@@ -20,7 +20,8 @@ Before starting, read `AGENTS.md` at `public_root` and follow it.
 Write only to the private repo. Never write to the public repo.
 
 The article folder relative to `private_root` is `articles/<YYYY-MM-DD-slug>/`, with
-`article.md`, `notes.md`, and `reviews/round-N/`.
+`article.md`, `notes.md`, and `reviews/round-N/`. Save the brief as `visuals.md` in that
+folder.
 
 ## Purpose
 
@@ -168,6 +169,11 @@ Present the brief as Markdown, structured like this:
 ## 1. Hero / Cover Image
 **Placement:** Hero / cover image
 **Concept:** ...
+**Header:** (proposed `header.toml` input, written in its format)
+    lines = ["...", "..."]
+    gold = 2
+    deck = ["...", "..."]
+    number = "01"
 **Rationale:** ...
 
 ## 2. [Short descriptive name for this visual]
@@ -177,6 +183,11 @@ Present the brief as Markdown, structured like this:
 
 [... additional supporting visuals as warranted ...]
 ```
+
+The hero entry always includes the **Header** block: the proposed `lines` (2 to 4), `gold`
+(the 1-based emphasis line), `deck` (exactly two lines) and `number` (series post number, or
+omit it for a standalone piece) in the shape of the article's `header.toml`. The author
+decides them; `scripts/writing header build` renders the header. This skill only proposes.
 
 Use a short, descriptive name in each supporting visual's heading (e.g. "The Observability
 Gap Diagram," "Deploy vs. Working Comparison Chart") rather than just "Visual 2" — it makes
