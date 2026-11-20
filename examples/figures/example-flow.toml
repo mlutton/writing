@@ -1,0 +1,76 @@
+# Example flow input. Invented boxes: a request, two checks and three outcomes.
+# Use style = "signal" on an edge for a dashed connector.
+type = "flow"
+title = "How a request is sorted"
+deck = "Each solid arrow is a step in the mechanism."
+takeaway = "Only the last outcome needs a person."
+sources = ["Source: invented for this example."]
+alt = "A request is checked twice, then sorted into three outcomes: accepted, deferred, or escalated, which is highlighted."
+place = "Where the sorting process is first described."
+caption = "Invented process."
+
+[[box]]
+id = "request"
+row = 0
+col = 0
+label = "Request"
+sub = "arrives as a form"
+
+[[box]]
+id = "check-one"
+row = 0
+col = 1
+label = "First check"
+sub = "format only"
+
+[[box]]
+id = "check-two"
+row = 0
+col = 2
+label = "Second check"
+sub = "content"
+
+[[box]]
+id = "accepted"
+row = 0
+col = 3
+label = "Accepted"
+
+[[box]]
+id = "deferred"
+row = 1
+col = 3
+label = "Deferred"
+
+[[box]]
+id = "escalated"
+row = 2
+col = 3
+label = "Escalated"
+sub = "goes to a person"
+focal = true
+
+[[edge]]
+from = "request"
+to = "check-one"
+style = "flow"
+
+[[edge]]
+from = "check-one"
+to = "check-two"
+style = "flow"
+
+[[edge]]
+from = "check-two"
+to = "accepted"
+style = "flow"
+
+[[edge]]
+from = "check-two"
+to = "deferred"
+style = "flow"
+
+[[edge]]
+from = "check-two"
+to = "escalated"
+style = "flow"

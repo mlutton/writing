@@ -1,0 +1,19 @@
+# Example table input. Invented rows; the arrow joins two columns.
+type = "table"
+title = "Three habits, before and after"
+deck = "Invented comparison for the example."
+sources = ["Source: invented for this example."]
+alt = "A table with three rows and three columns: Habit, Before and After. Reviews go from late to same day. Releases go from monthly to weekly, highlighted. Notes go from none to a template. An arrow joins Before to After in each row."
+place = "In the section that compares the habits."
+columns = ["Habit", "Before", "After"]
+arrow_after = 1
+
+[[row]]
+cells = ["Reviews", "Late", "Same day"]
+
+[[row]]
+cells = ["Releases", "Monthly", "Weekly"]
+focal = true
+
+[[row]]
+cells = ["Notes", "None", "A template"]

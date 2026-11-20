@@ -24,6 +24,7 @@ Run `scripts/install-hooks` from the repo root. Copy `examples/settings.example.
 - `scripts/writing article hash` — compute the SHA-256 of the exact article bytes.
 - `scripts/writing article list` — list articles, optionally filtered by status.
 - `scripts/writing header init`, `build` and `check` — make and check an article's header image (needs Chromium; see the runbook).
+- `scripts/writing figure init`, `build` and `check` — make and check an article's in-article figures from small TOML inputs (needs Chromium; see the runbook).
 - `scripts/writing publish` — preview a published entry or record it with the author's `--yes`.
 
 Use `--help` on any command for its options. Topic, article, and publish commands

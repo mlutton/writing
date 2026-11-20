@@ -12,3 +12,6 @@
 5. Before uploading, the author runs `scripts/writing header check <folder-name>`,
    which must pass, and pastes the header's `alt` text from `header.toml` into the
    image's alt field when uploading it.
+6. Before uploading, the author runs `scripts/writing figure check <folder-name>`
+   for an article with figures, which must pass, and pastes each figure's alt text
+   from `figures/ALT-TEXT.md` into the image's alt field when uploading it.
