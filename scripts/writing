@@ -531,6 +531,100 @@ def header_check(args, public, private):
     return 1 if failed else 0
 
 
+def figure_module():
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import writing_figure
+    return writing_figure
+
+
+def figure_spec(module, private):
+    return module.load_spec(child(private, *module.SPEC_RELATIVE), private)
+
+
+def figures_dir(private, folder):
+    article = child(private, "articles", folder)
+    if not article.is_dir():
+        raise Refusal(f"missing article folder: {folder}")
+    return child(article, "figures")
+
+
+def figure_name_arg(value):
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", value):
+        raise argparse.ArgumentTypeError("use a lowercase name with letters, digits, or hyphens")
+    return value
+
+
+def figure_init(args, public, private):
+    module = figure_module()
+    folder = figures_dir(private, args.folder)
+    target = child(folder, args.name + ".toml")
+    if target.exists():
+        raise Refusal(f"{target.name} already exists for {args.folder}")
+    folder.mkdir(exist_ok=True)
+    create_bytes(target, module.starter_input(args.type).encode("utf-8"))
+    report_files(args, [("created", target, private)])
+
+
+def figure_build(args, public, private):
+    module = figure_module()
+    if args.all == (args.name is not None):
+        raise Refusal("give a figure name or --all")
+    spec = figure_spec(module, private)
+    folder = figures_dir(private, args.folder)
+    names = module.figure_names(folder) if args.all else [args.name]
+    if not names:
+        raise Refusal(f"no figure inputs in {args.folder}; run figure init")
+    browser = module.render.find_chromium()
+    files, alts = [], {}
+    for name in names:
+        data = module.build(spec, name, folder, browser)
+        for suffix in (".svg", ".png"):
+            files.append(("wrote", folder / (name + suffix), private))
+        alts[name] = data["alt"]
+    files.append(("wrote", folder / module.ALT_NAME, private))
+    lines = [f"{action} {path.relative_to(root)}" for action, path, root in files]
+    lines += [f"alt {name}: {alt}" for name, alt in alts.items()]
+    output(args, {"files": [str(path.relative_to(root)) for _, path, root in files],
+                  "alt": alts}, lines)
+
+
+def figure_check(args, public, private):
+    module = figure_module()
+    if args.all == (args.folder is not None):
+        raise Refusal("give an article folder or --all")
+    spec = figure_spec(module, private)
+    folders = ([args.folder] if args.folder else
+               [name for name, _ in article_series(private)])
+    failed, results, missing = False, [], []
+    for folder in folders:
+        directory = figures_dir(private, folder)
+        names = module.figure_names(directory)
+        if not names:
+            if args.folder:
+                raise Refusal(f"no figure inputs for {folder}; run figure init")
+            missing.append(folder)
+            continue
+        found, extra = module.check_folder(spec, directory)
+        findings = {name: found[name] for name in names}
+        if extra:
+            findings["(folder)"] = extra
+        for name, items in findings.items():
+            bad = any(f.level == "fail" for f in items)
+            failed = failed or bad
+            results.append({"folder": folder, "figure": name, "ok": not bad,
+                            "findings": [{"level": f.level, "message": f.message}
+                                         for f in items]})
+    lines = []
+    for item in results:
+        lines.append(f"{'ok  ' if item['ok'] else 'FAIL'} {item['folder']} {item['figure']}")
+        lines += [f"  {f['level']}: {f['message']}" for f in item["findings"]]
+    if args.all and missing:
+        lines.append(f"no figures ({len(missing)}, informational):")
+        lines += [f"  {name}" for name in missing]
+    output(args, {"figures": results, "no_figures": missing}, lines)
+    return 1 if failed else 0
+
+
 @contextmanager
 def locked(root):
     """Serialize commands that read or change the same private repo."""
@@ -589,6 +683,22 @@ def main():
     check = command(headers, "check", header_check, "check headers without rendering")
     check.add_argument("folder", nargs="?", type=folder_arg)
     check.add_argument("--all", action="store_true", help="check every article with a header")
+
+    figures = commands.add_parser("figure", help="build and check in-article figures").add_subparsers(
+        required=True)
+    figure_new = command(figures, "init", figure_init, "write a starter figure input")
+    figure_new.add_argument("folder", type=folder_arg)
+    figure_new.add_argument("name", type=figure_name_arg)
+    figure_new.add_argument("--type", required=True,
+                            choices=("bars", "flow", "table", "stats", "custom"))
+    figure_make = command(figures, "build", figure_build, "render figure svg and png files")
+    figure_make.add_argument("folder", type=folder_arg)
+    figure_make.add_argument("name", nargs="?", type=figure_name_arg)
+    figure_make.add_argument("--all", action="store_true", help="build every figure in the article")
+    figure_verify = command(figures, "check", figure_check, "check figures without rendering")
+    figure_verify.add_argument("folder", nargs="?", type=folder_arg)
+    figure_verify.add_argument("--all", action="store_true",
+                               help="check every article with figures")
 
     publication = command(commands, "publish", publish, "record an article already published")
     publication.add_argument("folder", type=folder_arg)

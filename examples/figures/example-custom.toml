@@ -1,0 +1,8 @@
+# Example custom figure input. The script runs your own code: see the runbook.
+type = "custom"
+title = "A three-step sequence"
+deck = "Drawn by example-custom.py on the shared frame."
+sources = ["Source: invented for this example."]
+alt = "Three squares in a row labelled Draft, Review and Ship, joined by solid arrows. A dashed arrow returns from Ship to Draft. Review is highlighted."
+place = "Where the sequence is described."
+script = "example-custom.py"

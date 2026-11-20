@@ -179,6 +179,11 @@ Present the brief as Markdown, structured like this:
 ## 2. [Short descriptive name for this visual]
 **Placement:** ...
 **Concept:** ...
+**Figure:** (proposed figure `type` and its content, in the shape of the figure input)
+    type = "bars"   # bars, flow, table, stats, or custom
+    title = "..."
+    deck = "..."
+    # then the type's own keys: [[bar]], [[box]]/[[edge]], columns/[[row]], or [[column]]
 **Rationale:** ...
 
 [... additional supporting visuals as warranted ...]
@@ -188,6 +193,12 @@ The hero entry always includes the **Header** block: the proposed `lines` (2 to 
 (the 1-based emphasis line), `deck` (exactly two lines) and `number` (series post number, or
 omit it for a standalone piece) in the shape of the article's `header.toml`. The author
 decides them; `scripts/writing header build` renders the header. This skill only proposes.
+
+Each supporting visual names a figure `type` (`bars`, `flow`, `table`, `stats`, or `custom`
+when none fits) and gives its content in the shape of the figure input: the frame keys
+(`title`, `deck`, optional `eyebrow`, `takeaway`, `sources`) and the type's own keys, using only
+numbers and text present in the article. The author decides them; `scripts/writing figure init`
+creates the input and `scripts/writing figure build` renders it. This skill only proposes.
 
 Use a short, descriptive name in each supporting visual's heading (e.g. "The Observability
 Gap Diagram," "Deploy vs. Working Comparison Chart") rather than just "Visual 2" — it makes

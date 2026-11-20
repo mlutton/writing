@@ -1,0 +1,34 @@
+# Example stats input. Invented values in two columns; the hero is the focal number.
+type = "stats"
+title = "Two views of one invented survey"
+deck = "Made-up percentages for the example."
+sources = ["Source: invented for this example."]
+alt = "Two columns of invented survey results. Column one, Before: 40% of respondents were late, shown large, and 12 meetings per week. Column two, After: 8% were late and 31 meetings per week."
+place = "Near the top of the article."
+numbers = "All values are invented for the example."
+
+[[column]]
+header = "Before"
+
+[[column.item]]
+value = "40%"
+label = "of respondents were late"
+source = "Invented survey A"
+hero = true
+
+[[column.item]]
+value = "12"
+label = ["meetings per week", "on average"]
+source = "Invented survey B"
+
+[[column]]
+header = "After"
+
+[[column.item]]
+value = "8%"
+label = "of respondents were late"
+source = "Invented survey C"
+
+[[column.item]]
+value = "31"
+label = "meetings per week"

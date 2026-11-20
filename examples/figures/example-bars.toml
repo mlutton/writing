@@ -1,0 +1,30 @@
+# Example bar chart input. Invented data: no real figures here.
+type = "bars"
+title = "Widgets shipped per team"
+deck = "Invented numbers for the example. Bars scale to the largest value."
+eyebrow = "WIDGETS PER QUARTER"
+takeaway = "Team C shipped the most, by a small margin."
+sources = ["Source: invented for this example."]
+alt = "Horizontal bar chart of widgets shipped per quarter by four invented teams: Team A 120, Team B 95, Team C 130 (highlighted), Team D 60."
+place = "After the paragraph that compares the teams."
+caption = "Invented data."
+numbers = "All four values are invented for the example."
+label_position = "left"
+
+[[bar]]
+label = "Team A"
+value = 120
+
+[[bar]]
+label = "Team B"
+value = 95
+
+[[bar]]
+label = "Team C"
+value = 130
+display = "130"
+focal = true
+
+[[bar]]
+label = "Team D"
+value = 60

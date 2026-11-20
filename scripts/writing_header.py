@@ -6,57 +6,32 @@ standard library. Chromium is needed only to measure text and to rasterise.
 """
 
 from dataclasses import dataclass, field
-import hashlib
 import html
 import json
-import os
 from pathlib import Path
 import re
-import shutil
-import struct
-import subprocess
-import tempfile
 import tomllib
-import xml.etree.ElementTree as ET
 
+import writing_render as render
+from writing_render import (  # noqa: F401  (re-exported: the header API predates the shared module)
+    BROWSERS, COLOUR, GENERIC_FAMILIES, NUMBER, PROBE_TEXT, SHA256, TOLERANCE, Finding, Spec,
+    css_family, find_chromium, font_face_css, font_report_problems, num, png_size, replace_file,
+    run_browser, sha256_bytes, sha256_file, svg_family)
+
+HeaderError = render.RenderError
 
 SPEC_RELATIVE = ("guides", "header-template.toml")
 INPUT_NAME = "header.toml"
 SVG_NAME = "header.svg"
 PNG_NAME = "header.png"
-BROWSERS = ("chromium", "chromium-browser", "google-chrome", "google-chrome-stable")
-GENERIC_FAMILIES = {"serif", "sans-serif", "monospace", "cursive", "fantasy", "system-ui",
-                    "ui-serif", "ui-sans-serif", "ui-monospace", "ui-rounded"}
-PROBE_TEXT = "Hamburgefonstiv 0123456789"
 PART_OF = re.compile(r"\bpart\s+\d+\s+of\s+\d+\b", re.I)
 DIGITS = re.compile(r"[0-9]+")
-SHA256 = re.compile(r"[0-9a-f]{64}")
-COLOUR = re.compile(r"#[0-9a-fA-F]{3,8}")
 METADATA_ID = "header-build"
-TOLERANCE = 0.01
 
-
-class HeaderError(ValueError):
-    """The header cannot be built or checked; the message says why."""
-
-
-@dataclass
-class Finding:
-    level: str  # "fail" or "warn"
-    message: str
-
-
-def sha256_bytes(data):
-    return hashlib.sha256(data).hexdigest()
-
-
-def sha256_file(path):
-    return sha256_bytes(Path(path).read_bytes())
 
 
 # ---------------------------------------------------------------- the spec
 
-NUMBER = (int, float)
 SCHEMA = {
     "canvas.width": int, "canvas.height": int, "canvas.background": str,
     "font.family": str, "font.weight_min": int, "font.weight_max": int,
@@ -77,18 +52,8 @@ SCHEMA = {
 RULE_SCHEMA = {"y": NUMBER, "height": NUMBER, "fill": str, "opacity": NUMBER}
 
 
-def _is(value, kind):
-    if isinstance(value, bool):
-        return False
-    return isinstance(value, kind)
-
-
-def _lookup(data, dotted):
-    for part in dotted.split("."):
-        if not isinstance(data, dict) or part not in data:
-            return None, False
-        data = data[part]
-    return data, True
+_is = render.is_kind
+_lookup = render.lookup
 
 
 def validate_spec(spec):
@@ -140,31 +105,6 @@ def validate_spec(spec):
         problems.append("spec title.min_size must be between 0 and the standard size")
     return problems
 
-
-@dataclass
-class Spec:
-    data: dict
-    sha256: str
-    root: Path  # the private root font paths are relative to
-
-    @property
-    def family(self):
-        return self.data["font"]["family"]
-
-    @property
-    def font_path(self):
-        name = self.data["font"].get("file")
-        return self.root / name if name else None
-
-    def verify_font_file(self):
-        """Fail unless the vendored font is present and matches the recorded hash."""
-        path = self.font_path
-        if path is None:
-            return
-        if not path.is_file():
-            raise HeaderError(f"template font file is missing: {self.data['font']['file']}")
-        if sha256_file(path) != self.data["font"]["sha256"]:
-            raise HeaderError("template font file does not match the sha256 in the spec")
 
 
 def load_spec(path, root):
@@ -376,21 +316,6 @@ def layout_problems(spec, lay):
 
 # ---------------------------------------------------------------------- SVG
 
-def num(value):
-    if isinstance(value, float) and value.is_integer():
-        value = int(value)
-    return repr(value) if isinstance(value, float) else str(value)
-
-
-def css_family(family):
-    if family.lower() in GENERIC_FAMILIES:
-        return family
-    return '"' + family.replace("\\", "\\\\").replace('"', '\\"') + '"'
-
-
-def svg_family(family):
-    return family if family.lower() in GENERIC_FAMILIES else family.replace('"', "")
-
 
 def render_svg(spec, inp, lay, folder, title, input_sha256):
     """The header as SVG text, with the build record in <metadata>."""
@@ -449,58 +374,7 @@ def render_svg(spec, inp, lay, folder, title, input_sha256):
 
 def read_build_record(svg_path):
     """The record render_svg stored in <metadata>, or None when absent or unreadable."""
-    try:
-        root = ET.parse(svg_path).getroot()
-    except (OSError, ET.ParseError):
-        return None
-    for element in root.iter("{http://www.w3.org/2000/svg}metadata"):
-        if element.get("id") == METADATA_ID:
-            try:
-                record = json.loads(element.text or "")
-            except ValueError:
-                return None
-            return record if isinstance(record, dict) else None
-    return None
-
-
-# ---------------------------------------------------------------------- PNG
-
-def png_size(path):
-    """Width and height from the IHDR chunk, or None when the file is not a PNG."""
-    try:
-        with open(path, "rb") as file:
-            head = file.read(24)
-    except OSError:
-        return None
-    if len(head) < 24 or head[:8] != b"\x89PNG\r\n\x1a\n" or head[12:16] != b"IHDR":
-        return None
-    return struct.unpack(">II", head[16:24])
-
-
-# ---------------------------------------------------------------- Chromium
-
-def find_chromium(environ=None, which=shutil.which):
-    environ = os.environ if environ is None else environ
-    configured = environ.get("WRITING_CHROMIUM")
-    if configured:
-        if not Path(configured).is_file():
-            raise HeaderError("WRITING_CHROMIUM does not point to a file")
-        return configured
-    for name in BROWSERS:
-        found = which(name)
-        if found:
-            return found
-    raise HeaderError("Chromium not found: install chromium or google-chrome, "
-                      "or set WRITING_CHROMIUM to the binary")
-
-
-def font_face_css(spec):
-    path = spec.font_path
-    if path is None:
-        return ""
-    low, high = spec.data["font"]["weight_min"], spec.data["font"]["weight_max"]
-    return (f'@font-face {{ font-family: {css_family(spec.family)}; '
-            f'src: url("{path.resolve().as_uri()}"); font-weight: {low} {high}; }}\n')
+    return render.read_build_record(svg_path, METADATA_ID)
 
 
 def used_weights(spec, weights=()):
@@ -510,132 +384,15 @@ def used_weights(spec, weights=()):
     return sorted(found)
 
 
-def run_browser(browser, args, timeout=90):
-    with tempfile.TemporaryDirectory(prefix="writing-header-profile-") as profile:
-        command = [browser, "--headless=new", "--disable-gpu", "--no-sandbox", "--hide-scrollbars",
-                   "--allow-file-access-from-files", "--no-first-run",
-                   f"--user-data-dir={profile}", *args]
-        try:
-            return subprocess.run(command, capture_output=True, text=True, timeout=timeout,
-                                  check=False)
-        except subprocess.TimeoutExpired:
-            raise HeaderError("Chromium timed out") from None
-        except OSError as error:
-            raise HeaderError(f"could not start Chromium: {error}") from None
-
-
-MEASURE_PAGE = """<!doctype html><meta charset="utf-8">
-<style>%(face)s</style><body><pre id="o"></pre><script>
-(async () => {
-  const D = %(data)s;
-  const out = {widths: [], faces: [], probe: null, error: null};
-  try {
-    for (const w of D.weights) { await document.fonts.load(`${w} 48px ${D.family}`, D.probe); }
-    for (const j of D.jobs) { await document.fonts.load(`${j.weight} ${j.size}px ${D.family}`, j.text); }
-    await document.fonts.ready;
-    const c = document.createElement('canvas').getContext('2d');
-    out.widths = D.jobs.map(j => {
-      c.font = `${j.weight} ${j.size}px ${D.family}, monospace`;
-      const n = Array.from(j.text).length;
-      return Math.round((c.measureText(j.text).width + j.tracking * (n - 1)) * 100) / 100;
-    });
-    out.faces = Array.from(document.fonts).map(f => ({family: f.family, weight: f.weight, status: f.status}));
-    if (D.probeFamily) {
-      const w = D.weights[D.weights.length - 1];
-      const m = f => { c.font = `${w} 48px ${f}`; return c.measureText(D.probe).width; };
-      out.probe = {font: m(`${D.family}, monospace`), monospace: m('monospace'), serif: m('serif')};
-    }
-  } catch (e) { out.error = String(e); }
-  document.getElementById('o').textContent = '@@' + JSON.stringify(out) + '@@';
-})();
-</script></body>"""
-
-
-def measure_page(spec, jobs):
-    family = css_family(spec.family)
-    data = {"family": family, "jobs": jobs, "weights": used_weights(spec, [j["weight"] for j in jobs]),
-            "probe": PROBE_TEXT, "probeFamily": family.lower().strip('"') not in GENERIC_FAMILIES}
-    payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
-    return MEASURE_PAGE % {"face": font_face_css(spec), "data": payload}
-
-
-def font_report_problems(spec, report):
-    """Problems in the page's font report; a missing font must never fall back silently."""
-    problems = []
-    if report.get("error"):
-        problems.append(f"font loading raised an error: {report['error']}")
-    if spec.font_path is not None:
-        faces = [f for f in report.get("faces", []) if f.get("family", "").strip('"') == spec.family]
-        if not faces:
-            problems.append("the template font was never declared in the page")
-        for face in faces:
-            if face.get("status") != "loaded":
-                problems.append(f"template font face status is {face.get('status')}, not loaded")
-    probe = report.get("probe")
-    if probe is not None:
-        if probe["font"] == probe["monospace"] or probe["font"] == probe["serif"]:
-            problems.append("the template font did not load: text measured the same as a "
-                            "fallback font")
-    return problems
-
-
 def measure_with_browser(spec, jobs, browser, timeout=90):
     """Measure title lines in the browser; also verify the template font loaded."""
-    spec.verify_font_file()
-    with tempfile.TemporaryDirectory(prefix="writing-header-measure-") as folder:
-        page = Path(folder) / "measure.html"
-        page.write_text(measure_page(spec, jobs), encoding="utf-8")
-        result = run_browser(browser, ["--virtual-time-budget=10000", "--dump-dom",
-                                       page.resolve().as_uri()], timeout)
-    found = re.search(r"@@(.*?)@@", result.stdout, re.S)
-    if not found:
-        raise HeaderError("text measurement failed: Chromium returned no result")
-    report = json.loads(html.unescape(found[1]))
-    problems = font_report_problems(spec, report)
-    if problems:
-        raise HeaderError("; ".join(problems))
-    if len(report["widths"]) != len(jobs):
-        raise HeaderError("text measurement failed: wrong number of widths")
-    return report["widths"]
-
-
-def screenshot_page(spec, svg):
-    """An HTML wrapper declaring the template font around the inline SVG."""
-    data = spec.data["canvas"]
-    families = css_family(spec.family)
-    loads = [f"{w} 16px {families}" for w in used_weights(spec)]
-    script = ("<script>Promise.all(" + json.dumps(loads).replace("</", "<\\/") +
-              ".map(f => document.fonts.load(f, 'Aa0'))).then(() => document.fonts.ready);</script>")
-    return (f'<!doctype html><meta charset="utf-8"><style>{font_face_css(spec)}'
-            f'html, body {{ margin: 0; padding: 0; background: {data["background"]}; }}'
-            f'svg {{ display: block; }}</style><body>{svg}{script}</body>')
+    return render.measure_with_browser(
+        spec, jobs, browser, used_weights(spec, [j["weight"] for j in jobs]), timeout)
 
 
 def rasterise(spec, svg, destination, browser, timeout=90):
     """Screenshot the SVG at exactly the canvas size, scale factor 1, to `destination`."""
-    spec.verify_font_file()
-    width, height = spec.data["canvas"]["width"], spec.data["canvas"]["height"]
-    with tempfile.TemporaryDirectory(prefix="writing-header-shot-") as folder:
-        page = Path(folder) / "header.html"
-        page.write_text(screenshot_page(spec, svg), encoding="utf-8")
-        shot = Path(folder) / "header.png"
-        run_browser(browser, ["--virtual-time-budget=10000", "--force-device-scale-factor=1",
-                              f"--window-size={width},{height}", f"--screenshot={shot}",
-                              page.resolve().as_uri()], timeout)
-        if not shot.is_file():
-            raise HeaderError("Chromium produced no screenshot")
-        replace_file(destination, shot.read_bytes())
-
-
-def replace_file(path, data):
-    path = Path(path)
-    temp = path.with_name("." + path.name + ".tmp")
-    try:
-        temp.write_bytes(data)
-        os.replace(temp, path)
-    finally:
-        temp.unlink(missing_ok=True)
-
+    render.rasterise(spec, svg, destination, browser, used_weights(spec), timeout)
 
 # ------------------------------------------------------------------- checks
 

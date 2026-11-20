@@ -1,0 +1,11 @@
+# Draw in-article figures from declarative inputs on a shared frame
+
+In-article figures used to be hand-built per article: each one a script that copied the last one's helpers. The figures that shipped share a "titled frame" (title, deck, optional caps eyebrow and takeaway line, source lines, the header's two rules, a left rail), so the frame is now drawn by the generator and an author supplies only the content.
+
+A figure is a small TOML input in the article's `figures/` folder. The generator reads it together with a spec file in the private repo (canvas, palette roles, text roles, frame and per-type geometry, limits, and the same vendored-font block as the header spec), lays it out with measured text widths, writes an SVG and rasterises it with headless Chromium to a PNG. Measurement, font verification, screenshots and the recorded build metadata are shared with the header generator in `scripts/writing_render.py`.
+
+There are four built-in types, chosen by how often each shipped: horizontal bars, flow diagrams (boxes on a grid with orthogonal connectors), tables, and statistic columns. Everything else uses a `custom` type, whose author-written script draws the plot area with the frame's primitives. The frame, the generic checks and the staleness record still apply to it. A custom script is the author's own code in the private repo and runs when the figure is built; it is the one place the tooling executes content from outside this repo.
+
+The checks that matter run on every type, including custom, and read the produced SVG: gold on at most the spec's limit of elements, only the two arrow styles (solid in the flow colour, dashed in the signal colour), and none of rounded corners, filters, gradients or embedded images. Text that does not fit its space fails the build and is never shrunk silently. Alt text must mention every plotted value, and the number sources are written beside the alt text in a generated `ALT-TEXT.md`. The SVG records the input hash, the spec hash and, for custom figures, the script hash, so `figure check` reports a figure made before any of them changed as stale.
+
+The tooling contains no brand values. The public example spec and example inputs use neutral placeholders and invented data. The real spec, fonts and figures stay in the private repo.

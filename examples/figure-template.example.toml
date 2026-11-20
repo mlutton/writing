@@ -1,0 +1,280 @@
+# Example figure template. Copy it to the private repo as guides/figure-template.toml
+# and replace every value with your own. These placeholder values are neutral on
+# purpose; the generator has no values of its own and renders whatever this file
+# says. Changing the file makes every built figure stale, by design.
+
+[canvas]
+width = 1200
+height = 675
+background = "#202020"
+
+[font]
+family = "sans-serif"
+# A system family needs no file. To vendor a font, add both lines below
+# (path relative to the private repo root; sha256 of the file), for example:
+#   file = "assets/fonts/example/Example[wght].ttf"
+#   sha256 = "<64 hex characters>"
+weight_min = 100
+weight_max = 900
+
+# Top and bottom rules, full canvas width (same as the header).
+[[rule]]
+y = 0
+height = 2
+fill = "#5080B0"
+opacity = 0.9
+
+[[rule]]
+y = 673
+height = 2
+fill = "#5080B0"
+opacity = 0.4
+
+# Colour roles. Text roles below name these.
+[palette]
+primary = "#EEEEEE"
+descriptor = "#B0B8C0"
+body = "#A0A8B0"
+source = "#788088"
+focal = "#C0A060"        # the focal colour: the One Signal colour
+structure = "#5080B0"    # structure blue: box outlines, zone labels
+divider = "#383838"      # seams and row rules
+focal_tint = "#262626"   # focal row background
+bar = "#4A6078"          # bar fill
+flow = "#4A6078"         # solid arrows: the mechanism
+signal = "#9090B8"       # dashed arrows: what becomes possible
+watermark = "#2A2A2A"    # reserved, as in the header
+
+[frame]
+x = 80                  # left rail
+right = 1120             # right edge of content
+title_y = 96
+deck_y = 126
+eyebrow_y = 160
+takeaway_y = 560
+source_ys = [648, 666]
+plot_top = 176
+plot_bottom = 540        # plot area bottom when a takeaway line is present
+plot_bottom_open = 612   # plot area bottom without a takeaway
+divider_y = 628
+divider_width = 1040
+divider_height = 1
+
+[limits]
+max_focal = 2            # One Signal Rule: gold on at most two elements
+max_bars = 8
+max_boxes = 12
+max_rows = 6
+max_table_columns = 6
+max_stat_items = 3
+max_sources = 2
+
+# Text roles: size, weight, fill (a palette role) and letter-spacing, all in px.
+[text.title]
+size = 28
+weight = 700
+fill = "primary"
+letter_spacing = -0.5
+
+[text.deck]
+size = 15
+weight = 400
+fill = "body"
+letter_spacing = 0
+
+[text.eyebrow]
+size = 11
+weight = 700
+fill = "source"
+letter_spacing = 2
+
+[text.takeaway]
+size = 17
+weight = 400
+fill = "primary"
+letter_spacing = 0
+
+[text.source]
+size = 11
+weight = 400
+fill = "source"
+letter_spacing = 0
+
+[text.label]
+size = 15
+weight = 400
+fill = "body"
+letter_spacing = 0
+
+[text.label_focal]
+size = 15
+weight = 700
+fill = "primary"
+letter_spacing = 0
+
+[text.value]
+size = 17
+weight = 400
+fill = "primary"
+letter_spacing = 0
+
+[text.value_focal]
+size = 17
+weight = 700
+fill = "focal"
+letter_spacing = 0
+
+[text.box_label]
+size = 20
+weight = 700
+fill = "primary"
+letter_spacing = -0.2
+
+[text.box_sub]
+size = 13
+weight = 400
+fill = "body"
+letter_spacing = 0
+
+[text.row_label]
+size = 12
+weight = 700
+fill = "structure"
+letter_spacing = 2
+
+[text.column_header]
+size = 14
+weight = 700
+fill = "structure"
+letter_spacing = 2
+
+[text.table_header]
+size = 12
+weight = 700
+fill = "structure"
+letter_spacing = 2
+
+[text.cell]
+size = 17
+weight = 400
+fill = "primary"
+letter_spacing = 0
+
+[text.cell_focal]
+size = 17
+weight = 700
+fill = "focal"
+letter_spacing = 0
+
+[text.stat_value]
+size = 56
+weight = 700
+fill = "primary"
+letter_spacing = -1.5
+
+[text.hero_value]
+size = 80
+weight = 700
+fill = "focal"
+letter_spacing = -3
+
+[text.stat_label]
+size = 15
+weight = 400
+fill = "body"
+letter_spacing = 0
+
+[text.hero_label]
+size = 15
+weight = 400
+fill = "descriptor"
+letter_spacing = 0
+
+[text.stat_source]
+size = 12
+weight = 400
+fill = "source"
+letter_spacing = 0.3
+
+# Arrows: solid flow = mechanism, dashed signal = what becomes possible.
+[arrow]
+flow_width = 2
+signal_width = 1.5
+dash = "5 4"
+head_length = 10         # open chevron, no fill, round caps
+head_half = 6
+line_inset = 8           # the line stops this far short of the tip
+
+[zone_label]
+rule_width = 38
+rule_height = 2
+rule_dy = 10             # rule sits this far below the label baseline
+
+[bars]
+# label_position = "left": labels right-aligned in a gutter, bars start at axis_x
+axis_x = 440
+max_width = 560          # the largest bar
+thickness = 26
+pitch = 46
+bar_dy = 6               # bar top below the band top
+label_dy = 25
+value_dy = 27
+label_gap = 20
+value_gap = 14
+min_width = 4
+axis_width = 1
+# label_position = "above": the label sits over each bar
+above_axis_x = 80
+above_max_width = 840
+above_pitch = 64
+above_label_dy = 16
+above_bar_dy = 26
+above_value_dy = 45
+
+[flow]
+box_width_max = 250
+box_height = 84
+col_gap_min = 70         # room for connectors between columns
+row_gap = 26
+row_gap_labelled = 100   # row gap when rows carry a caps label
+label_room = 34          # space above the first row for its label
+pad_x = 20
+label_dy = 38
+sub_dy = 64
+stroke_width = 2
+row_label_dy = 24        # label baseline above the box top
+
+[table]
+indent = 16
+header_height = 40
+header_dy = 24
+row_height = 52
+cell_dy = 33
+col_gap_min = 32
+col_gap_extra_max = 96
+arrow_gap_min = 64
+arrow_pad = 14
+marker_width = 3
+marker_inset = 8
+rule_height = 1
+
+[stats]
+column_x = [80, 620]    # two-column split: the second column starts here
+column_width = 460
+one_column_width = 1040
+separator_x = 580
+separator_width = 1
+header_dy = 14           # column header baseline below plot_top
+items_top = 40           # first item top below plot_top
+value_dy = 52
+hero_value_dy = 66
+label_gap = 30
+label_line = 22
+source_gap = 22
+item_gap = 30
+percent_size = 28        # trailing % as a superscript tspan
+percent_dy = -18
+percent_dx = 4
+hero_percent_size = 44
+hero_percent_dy = -28
+hero_percent_dx = 6
