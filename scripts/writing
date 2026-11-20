@@ -444,6 +444,93 @@ def publish(args, public, private):
     return 0
 
 
+def header_module():
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import writing_header
+    return writing_header
+
+
+def header_context(private, folder):
+    """The spec, article folder, title and every article's series, for header commands."""
+    module = header_module()
+    spec = module.load_spec(child(private, *module.SPEC_RELATIVE), private)
+    article_dir = child(private, "articles", folder)
+    _, matter = read_document(article_file(private, folder))
+    return module, spec, article_dir, matter.get("title") or "", article_series(private)
+
+
+def article_series(private):
+    """[(folder, series)] for every article folder; unreadable articles are skipped."""
+    found = []
+    for item in sorted(child(private, "articles").iterdir()):
+        if item.is_symlink() or not item.is_dir() or not FOLDER.fullmatch(item.name):
+            continue
+        try:
+            _, matter = read_document(article_file(private, item.name))
+            found.append((item.name, matter.get("series") or ""))
+        except (Refusal, OSError, ValueError):
+            continue
+    return found
+
+
+def header_init(args, public, private):
+    module = header_module()
+    _, matter = read_document(article_file(private, args.folder))
+    title = matter.get("title")
+    if not title:
+        raise Refusal("article frontmatter requires a title")
+    target = child(private, "articles", args.folder, module.INPUT_NAME)
+    if target.exists():
+        raise Refusal(f"{module.INPUT_NAME} already exists for {args.folder}")
+    create_bytes(target, module.starter_input(title).encode("utf-8"))
+    report_files(args, [("created", target, private)])
+
+
+def header_build(args, public, private):
+    module, spec, article_dir, title, siblings = header_context(private, args.folder)
+    browser = module.find_chromium()
+    result = module.build(spec, args.folder, article_dir, title, siblings, browser)
+    files = [("wrote", article_dir / name, private)
+             for name in (module.SVG_NAME, module.PNG_NAME)]
+    sizes = ", ".join(str(size) for size in result.sizes)
+    scaled = f"scaled to {result.scale:.3f}" if result.scale < 1 else "no scaling"
+    lines = [f"{action} {path.relative_to(root)}" for action, path, root in files]
+    lines += [f"title sizes: {sizes} ({scaled})", f"alt: {result.alt}"]
+    output(args, {"files": [str(path.relative_to(root)) for _, path, root in files],
+                  "sizes": result.sizes, "scale": result.scale, "alt": result.alt}, lines)
+
+
+def header_check(args, public, private):
+    module = header_module()
+    if args.all == (args.folder is not None):
+        raise Refusal("give an article folder or --all")
+    spec = module.load_spec(child(private, *module.SPEC_RELATIVE), private)
+    siblings = article_series(private)
+    folders = [args.folder] if args.folder else [name for name, _ in siblings]
+    failed, results, missing = False, [], []
+    for folder in folders:
+        article_dir = child(private, "articles", folder)
+        if not (article_dir / module.INPUT_NAME).is_file():
+            if args.folder:
+                raise Refusal(f"no {module.INPUT_NAME} for {folder}; run header init")
+            missing.append(folder)
+            continue
+        _, matter = read_document(article_file(private, folder))
+        found = module.check_files(spec, folder, article_dir, matter.get("title") or "", siblings)
+        failed = failed or any(f.level == "fail" for f in found)
+        results.append({"folder": folder, "ok": not any(f.level == "fail" for f in found),
+                        "findings": [{"level": f.level, "message": f.message} for f in found]})
+    lines = []
+    for item in results:
+        lines.append(f"{'ok  ' if item['ok'] else 'FAIL'} {item['folder']}")
+        lines += [f"  {f['level']}: {f['message']}" for f in item["findings"]]
+    if args.all and missing:
+        lines.append(f"no header ({len(missing)}, informational):")
+        lines += [f"  {name}" for name in missing]
+    output(args, {"articles": results, "no_header": missing}, lines)
+    return 1 if failed else 0
+
+
 @contextmanager
 def locked(root):
     """Serialize commands that read or change the same private repo."""
@@ -492,6 +579,16 @@ def main():
     command(articles, "hash", article_hash, "hash the article's exact bytes").add_argument(
         "folder", type=folder_arg)
     command(articles, "list", list_documents, "list articles").add_argument("--status")
+
+    headers = commands.add_parser("header", help="build and check article headers").add_subparsers(
+        required=True)
+    command(headers, "init", header_init, "write a starter header.toml").add_argument(
+        "folder", type=folder_arg)
+    command(headers, "build", header_build, "render header.svg and header.png").add_argument(
+        "folder", type=folder_arg)
+    check = command(headers, "check", header_check, "check headers without rendering")
+    check.add_argument("folder", nargs="?", type=folder_arg)
+    check.add_argument("--all", action="store_true", help="check every article with a header")
 
     publication = command(commands, "publish", publish, "record an article already published")
     publication.add_argument("folder", type=folder_arg)

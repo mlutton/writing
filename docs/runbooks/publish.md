@@ -9,3 +9,6 @@
    wording. The command runs the guard and records the entry and private statuses.
 4. The author resolves any reported findings and reruns the command. Before
    committing the entry, the author runs `scripts/guard --all`.
+5. Before uploading, the author runs `scripts/writing header check <folder-name>`,
+   which must pass, and pastes the header's `alt` text from `header.toml` into the
+   image's alt field when uploading it.
